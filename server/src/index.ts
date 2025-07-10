@@ -6,21 +6,26 @@ import path from 'path';
 import fs from 'fs';
 import { Queue } from "bullmq";
 import { QdrantVectorStore } from '@langchain/qdrant';
-import { OpenAIEmbeddings } from '@langchain/openai';
-import { ChatGroq } from "@langchain/groq";
-import { SelfQueryRetriever } from "langchain/retrievers/self_query";
-import { QdrantTranslator } from "@langchain/community/structured_query/qdrant";
+import { OllamaEmbeddings } from '@langchain/ollama';
+import { Ollama } from 'ollama';
 
-const uploadDir = path.join(__dirname, 'uploads', 'pdf');
+dotenv.config();
 
-const queue = new Queue("pdf-queue",
-    // {
-    //     connection: {
-    //         host: 'localhost',
-    //         port: 6379
-    //     }
-    // }
-);
+const ollama = new Ollama({ host: 'http://localhost:11434' });
+
+const embeddings = new OllamaEmbeddings({
+    model: 'nomic-embed-text',
+    baseUrl: 'http://localhost:11434'
+});
+
+const uploadDir = path.join(process.cwd(), 'uploads', 'pdf');
+
+const queue = new Queue("pdf-queue", {
+    connection: {
+        host: 'localhost',
+        port: 6379,
+    }
+});
 
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
@@ -36,65 +41,117 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ storage: storage })
-dotenv.config();
+const upload = multer({
+    storage: storage,
+});
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 5000;
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.get('/', (req, res) => {
-    res.send('help');
+    res.json({ message: 'AskYourPDF Server', status: 'running' });
 });
 
 app.post('/upload/pdf', upload.single('pdf'), async function (req, res) {
-    await queue.add("pdf-job", JSON.stringify({
-        filename: req.file?.originalname,
-        destination: req.file?.destination,
-        path: req.file?.path
-    }));
+    try {
+        if (!req.file) {
+            res.status(400).json({ error: 'No PDF file uploaded' });
+        }
+        if (req.file) {
 
-    res.json({ message: "PDF uploaded" })
+            await queue.add("pdf-job", {
+                filename: req.file.originalname,
+                destination: req.file.destination,
+                path: req.file.path
+            });
+
+            res.json({
+                message: "PDF uploaded successfully",
+                filename: req.file.originalname
+            });
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Failed to upload PDF' });
+    }
 });
 
 app.get('/chat', async (req, res) => {
-    const userQuery = req.query.query;
-    const embeddings = new OpenAIEmbeddings({
-        model: 'text-embedding-3-small',
-        apiKey: process.env.OPENAI_API_KEY //TODO find other embedding models
-    });
+    try {
+        const userQuery = req.query.query as string;
 
-    const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
-        url: process.env.QDRANT_URL,
-        collectionName: "pdf-collection",
-    });
+        if (!userQuery) {
+            res.status(400).json({ error: 'Query parameter is required' });
+        }
+        const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
+            url: 'http://localhost:6333',
+            collectionName: "pdf-collection",
+        });
 
-    const retriever = vectorStore.asRetriever({ k: 2 });
-    // @ts-ignore
-    const result = await retriever.invoke(userQuery);
+        const retriever = vectorStore.asRetriever({ k: 2 });
+        const retrievedDocs = await retriever.invoke(userQuery);
 
-    const SYSTEM_PROMPT = `
-    You are a helpful assistant that answers questions based on the provided context. Read the context carefully and use it to answer user queries. If you cannot find an answer, say "I don't have information about that in this document." Do not generate false information or use external sources.
-    Context: ${JSON.stringify(result)}
-    `;
-    const llm = new ChatGroq({
-        model: "llama-3.3-70b-versatile",
-        temperature: 0
-    });
-    const prompt = [
-        { role: "assistant", content: SYSTEM_PROMPT },
-        { role: "user", content: userQuery }
-    ];
-    // @ts-ignore
-    const answer = await llm.invoke(prompt);
+        const context = retrievedDocs.map(doc => doc.pageContent).join('\n\n');
 
-    res.json({ answer, sources: result });
+        const SYSTEM_PROMPT = `You are a helpful assistant. Use the provided context to answer user questions when it is available. If the answer is clearly found in the context, say "Based on the provided documents, ..." before answering. If the context does not contain the answer, you may respond using your own general knowledge, but indicate it by saying "Based on my general knowledge, ...". Do not make up facts when context is needed for accuracy. Be concise, accurate, and helpful. Context: ${context}`;
+
+        const messages = [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userQuery }
+        ];
+
+        const response = await ollama.chat({
+            // model: "llama3",                        //TODO tweak models
+            model: "tinyllama:1.1b-chat",
+            messages: messages
+        });
+
+        res.json({
+            response: response.message.content,
+            sources: retrievedDocs.length
+        });
+
+    } catch (error) {
+        console.error('Chat error:', error);
+        res.status(500).json({ error: 'Failed to process chat query' });
+    }
 });
 
+// Health check endpoint
+app.get('/health', async (req, res) => {
+    try {
+        // Check Ollama connection
+        const models = await ollama.list();
+
+        res.json({
+            status: 'healthy',
+            ollama: 'connected',
+            models: models.models?.length || 0
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            status: 'unhealthy',
+            error: error.message
+        });
+    }
+});
+
+app.use((error: any, req: any, res: any, next: any) => {
+    if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ error: 'File too large' });
+        }
+    }
+
+    console.error('Server error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+});
 
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
+    console.log(`Health check available at http://localhost:${PORT}/health`);
 });

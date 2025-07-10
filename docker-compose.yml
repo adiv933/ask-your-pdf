@@ -1,9 +1,48 @@
 services:
+    # app:
+    #     build: ./server
+    #     image: adiv933/ask-your-pdf
+    #     ports:
+    #         - "5000:5000"
+    #     depends_on:
+    #         - valkey
+    #         - qdrant
+    #         - ollama
+    #     environment:
+    #         - REDIS_HOST=valkey
+    #         - VECTOR_DB_HOST=qdrant
+    #         - LLM_HOST=ollama
+    #         - PORT=5000
+    #         - QDRANT_URL=http://localhost:6333
+    #     volumes:
+    #         - ./server:/app
+
     valkey:
-        image: valkey/valkey
+        image: valkey/valkey:latest
         ports:
-            - 6379:6379
+            - "6379:6379"
+
     qdrant:
         image: qdrant/qdrant:latest
         ports:
-            - 6333:6333
+            - "6333:6333"
+        volumes:
+            - qdrant_data:/qdrant/storage
+
+    ollama:
+        image: ollama/ollama
+        ports:
+            - "11434:11434"
+        volumes:
+            - ollama_data:/root/.ollama
+        entrypoint: >
+            sh -c "
+            ollama serve & 
+            sleep 5 && 
+            ollama pull tinyllama:1.1b-chat && 
+            ollama pull nomic-embed-text && 
+            wait"
+
+volumes:
+    qdrant_data:
+    ollama_data:
