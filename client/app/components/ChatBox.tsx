@@ -44,7 +44,6 @@ export default function ChatBox() {
             if (data.error) {
                 throw new Error(data.error);
             }
-            console.log('data', data)
 
             setMessages(prev => [
                 ...prev,

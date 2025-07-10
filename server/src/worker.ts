@@ -9,13 +9,18 @@ import fs from 'fs';
 
 dotenv.config();
 
+// Use service names from docker-compose
+const QDRANT_HOST = process.env.VECTOR_DB_HOST || 'qdrant';
+const REDIS_HOST = process.env.REDIS_HOST || 'valkey';
+const LLM_HOST = process.env.LLM_HOST || 'ollama';
+
 const qdrantClient = new QdrantClient({
-    url: 'http://localhost:6333',
+    url: `http://${QDRANT_HOST}:6333`,
 });
 
 const embeddings = new OllamaEmbeddings({
     model: 'nomic-embed-text',
-    baseUrl: 'http://localhost:11434'
+    baseUrl: `http://${LLM_HOST}:11434`
 });
 
 const textSplitter = new RecursiveCharacterTextSplitter({
@@ -23,6 +28,25 @@ const textSplitter = new RecursiveCharacterTextSplitter({
     chunkOverlap: 200,
     separators: ['\n\n', '\n', ' ', ''],
 });
+
+async function waitForQdrant(retries = 15, delayMs = 5000) {
+    const url = `http://${QDRANT_HOST}:6333/collections`;
+
+    for (let i = 0; i < retries; i++) {
+        try {
+            const res = await fetch(url);
+            if (res.ok) {
+                console.log('✅ Qdrant is ready');
+                return;
+            }
+        } catch (err) {
+            console.log(`Waiting for Qdrant... (${i + 1}/${retries})`);
+        }
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+
+    throw new Error('Qdrant did not become ready in time');
+}
 
 async function ensureCollection() {
     try {
@@ -48,7 +72,9 @@ async function ensureCollection() {
 }
 
 async function initializeWorker() {
+    await waitForQdrant();
     await ensureCollection();
+
     return new Worker('pdf-queue', async job => {
         try {
             console.log(`Processing job ${job.id}...`);
@@ -83,7 +109,7 @@ async function initializeWorker() {
             }));
 
             const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
-                url: 'http://localhost:6333',
+                url: `http://${QDRANT_HOST}:6333`,
                 collectionName: "pdf-collection",
             });
 
@@ -104,15 +130,13 @@ async function initializeWorker() {
 
         } catch (error) {
             console.error(`Error processing job ${job.id}:`, error);
-
             await job.updateProgress(0);
-
-            throw error; 
+            throw error;
         }
     }, {
-        concurrency: 1, 
+        concurrency: 1,
         connection: {
-            host: 'localhost',
+            host: REDIS_HOST,
             port: 6379,
         },
     });

@@ -11,18 +11,23 @@ import { Ollama } from 'ollama';
 
 dotenv.config();
 
-const ollama = new Ollama({ host: 'http://localhost:11434' });
+// Use docker-compose service names
+const REDIS_HOST = process.env.REDIS_HOST || 'valkey';
+const QDRANT_HOST = process.env.VECTOR_DB_HOST || 'qdrant';
+const LLM_HOST = process.env.LLM_HOST || 'ollama';
+
+const ollama = new Ollama({ host: `http://${LLM_HOST}:11434` });
 
 const embeddings = new OllamaEmbeddings({
     model: 'nomic-embed-text',
-    baseUrl: 'http://localhost:11434'
+    baseUrl: `http://${LLM_HOST}:11434`
 });
 
 const uploadDir = path.join(process.cwd(), 'uploads', 'pdf');
 
 const queue = new Queue("pdf-queue", {
     connection: {
-        host: 'localhost',
+        host: REDIS_HOST,
         port: 6379,
     }
 });
@@ -46,7 +51,7 @@ const upload = multer({
 });
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
@@ -60,20 +65,19 @@ app.post('/upload/pdf', upload.single('pdf'), async function (req, res) {
     try {
         if (!req.file) {
             res.status(400).json({ error: 'No PDF file uploaded' });
+            return;
         }
-        if (req.file) {
 
-            await queue.add("pdf-job", {
-                filename: req.file.originalname,
-                destination: req.file.destination,
-                path: req.file.path
-            });
+        await queue.add("pdf-job", {
+            filename: req.file.originalname,
+            destination: req.file.destination,
+            path: req.file.path
+        });
 
-            res.json({
-                message: "PDF uploaded successfully",
-                filename: req.file.originalname
-            });
-        }
+        res.json({
+            message: "PDF uploaded successfully",
+            filename: req.file.originalname
+        });
     } catch (error) {
         console.error('Upload error:', error);
         res.status(500).json({ error: 'Failed to upload PDF' });
@@ -87,8 +91,9 @@ app.get('/chat', async (req, res) => {
         if (!userQuery) {
             res.status(400).json({ error: 'Query parameter is required' });
         }
+
         const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
-            url: 'http://localhost:6333',
+            url: `http://${QDRANT_HOST}:6333`,
             collectionName: "pdf-collection",
         });
 
@@ -105,7 +110,6 @@ app.get('/chat', async (req, res) => {
         ];
 
         const response = await ollama.chat({
-            // model: "llama3",                        //TODO tweak models
             model: "tinyllama:1.1b-chat",
             messages: messages
         });
@@ -124,9 +128,7 @@ app.get('/chat', async (req, res) => {
 // Health check endpoint
 app.get('/health', async (req, res) => {
     try {
-        // Check Ollama connection
         const models = await ollama.list();
-
         res.json({
             status: 'healthy',
             ollama: 'connected',
