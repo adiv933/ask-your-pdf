@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react';
-import { Paperclip, Send, Bot, User, Upload, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Paperclip, Send, Bot, User, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface Message {
