@@ -123,9 +123,9 @@ app.get('/chat', async (req, res) => {
         );
 
         res.json({
-            response: response.message.content,
-            sources: sourceFilenames  // an array of filenames
-        });
+                response: response.message.content,
+                sources: sourceFilenames  // an array of filenames
+            });
 
     } catch (error) {
         console.error('Chat error:', error);
