@@ -225,7 +225,7 @@ export default function ChatBox() {
                             <div
                                 className={`relative p-3 rounded-xl shadow-md ${msg.role === 'user'
                                     ? 'bg-orange-300 text-black'
-                                    : 'bg-zinc-100 text-black'
+                                    : 'bg-zinc-400 text-black'
                                     }`}
                             >
                                 {/* Message text */}
@@ -243,7 +243,7 @@ export default function ChatBox() {
                             <div
                                 className={`absolute top-3 w-0 h-0 border-t-8 border-b-8 ${msg.role === 'user'
                                     ? 'right-[-8px] border-l-8 border-l-orange-300 border-t-transparent border-b-transparent'
-                                    : 'left-[-8px] border-r-8 border-r-zinc-100 border-t-transparent border-b-transparent'
+                                    : 'left-[-8px] border-r-8 border-r-zinc-400 border-t-transparent border-b-transparent'
                                     }`}
                             />
                         </div>
@@ -270,11 +270,11 @@ export default function ChatBox() {
             </div>
 
             {/* Input box */}
-            <div className="p-4 bg-zinc-900 rounded-xl w-full">
-                <div className="flex items-center gap-2 w-full mx-auto text-white">
+            <div className="p-3 bg-zinc-900 rounded-xl w-full">
+                <div className="flex items-center gap-2 w-full text-white">
                     <input
                         type="text"
-                        className="flex-1 px-4 py-2 text-sm rounded-lg bg-zinc-800 placeholder-zinc-400 focus:outline-none disabled:opacity-50"
+                        className="flex-1 px-4 py-2 text-sm rounded-lg bg-zinc-900 placeholder-zinc-400 focus:outline-none disabled:opacity-50"
                         placeholder="Ask something..."
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
