@@ -55,9 +55,7 @@ const PORT = process.env.PORT || 5000;
 
 app.use(cors({
     origin: 'https://ask-your-pdf-lemon.vercel.app',
-    credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    credentials: true
 }));
 
 app.use(express.json());
