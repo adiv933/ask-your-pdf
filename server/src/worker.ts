@@ -59,7 +59,7 @@ async function ensureCollection() {
             console.log('Creating pdf-collection...');
             await qdrantClient.createCollection('pdf-collection', {
                 vectors: {
-                    size: 768,
+                    size: 768,   // nomic-embed-text size
                     distance: 'Cosine',
                 },
             });

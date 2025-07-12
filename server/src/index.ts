@@ -54,7 +54,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({
-    origin: 'https://ask-your-pdf-lemon.vercel.app',
+    origin: ['https://ask-your-pdf-lemon.vercel.app', 'http://localhost:3000'],
     credentials: true
 }));
 
@@ -103,7 +103,7 @@ app.get('/chat', async (req, res) => {
 
         const retriever = vectorStore.asRetriever({ k: 2 });
         const retrievedDocs = await retriever.invoke(userQuery);
-
+        console.log('retrievedDocs', retrievedDocs)
         const context = retrievedDocs.map(doc => doc.pageContent).join('\n\n');
 
         const SYSTEM_PROMPT = `You are a helpful assistant. Use the provided context to answer user questions when it is available. If the answer is clearly found in the context, say "Based on the provided documents, ..." before answering. If the context does not contain the answer, you may respond using your own general knowledge, but indicate it by saying "Based on my general knowledge, ...". Do not make up facts when context is needed for accuracy. Be concise, accurate, and helpful. Context: ${context}`;
@@ -118,9 +118,13 @@ app.get('/chat', async (req, res) => {
             messages: messages
         });
 
+        const sourceFilenames = Array.from(
+            new Set(retrievedDocs.map(doc => doc.metadata?.filename).filter(Boolean))
+        );
+
         res.json({
             response: response.message.content,
-            sources: retrievedDocs.length
+            sources: sourceFilenames  // an array of filenames
         });
 
     } catch (error) {

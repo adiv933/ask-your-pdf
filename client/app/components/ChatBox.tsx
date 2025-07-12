@@ -126,15 +126,28 @@ export default function ChatBox() {
                 throw new Error(result.error);
             }
 
+            setMessages(prev => [
+                ...prev,
+                {
+                    role: 'assistant',
+                    text: `Uploaded "${result.filename}". Please wait while the document is being processed...`,
+                    sources: null
+                }
+            ]);
+
+            // dummy wait for 10 seconds 
+            await new Promise(resolve => setTimeout(resolve, 10000));
+
             setUploadStatus('success');
             setMessages(prev => [
                 ...prev,
                 {
                     role: 'assistant',
-                    text: `Successfully uploaded "${result.filename}"! The PDF is being processed. You can start asking questions about it.`,
+                    text: `Successfully uploaded and processed "${result.filename}". You can now ask questions about it.`,
                     sources: null
                 }
             ]);
+
         } catch (error) {
             console.error('Upload error:', error);
             setUploadStatus('error');
@@ -232,9 +245,9 @@ export default function ChatBox() {
                                 <ReactMarkdown>{msg.text}</ReactMarkdown>
 
                                 {/* Sources info */}
-                                {msg.sources && typeof msg.sources === 'number' && msg.sources > 0 && (
+                                {Array.isArray(msg.sources) && msg.sources.length > 0 && (
                                     <div className="mt-2 text-xs text-blue-700">
-                                        <strong>Sources:</strong> Found {msg.sources} relevant document{msg.sources > 1 ? 's' : ''}
+                                        <strong>Sources:</strong> {msg.sources.join(', ')}
                                     </div>
                                 )}
                             </div>
@@ -257,11 +270,15 @@ export default function ChatBox() {
                         <div className="mt-1">
                             <Bot className="w-5 h-5 text-zinc-300" />
                         </div>
-                        <div className="max-w-[80%] p-3 rounded-xl shadow-md bg-zinc-100 text-black">
-                            <div className="flex items-center gap-2">
+                        <div className="max-w-[80%] p-3 rounded-xl shadow-md bg-zinc-400 text-black relative">
+                            <div className="flex items-center gap-2 relative">
                                 <Loader2 className="w-4 h-4 animate-spin" />
                                 <span>Thinking...</span>
                             </div>
+                            {/* Tail */}
+                            <div
+                                className='absolute top-3 w-0 h-0 border-t-8 border-b-8 left-[-8px] border-r-8 border-r-zinc-400 border-t-transparent border-b-transparent'
+                            />
                         </div>
                     </div>
                 )}
