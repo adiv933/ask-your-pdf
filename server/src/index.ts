@@ -88,6 +88,51 @@ app.post('/upload/pdf', upload.single('pdf'), async function (req, res) {
     }
 });
 
+// app.get('/chat', async (req, res) => {
+//     try {
+//         const userQuery = req.query.query as string;
+
+//         if (!userQuery) {
+//             res.status(400).json({ error: 'Query parameter is required' });
+//         }
+
+//         const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
+//             url: `http://${QDRANT_HOST}:6333`,
+//             collectionName: "pdf-collection",
+//         });
+
+//         const retriever = vectorStore.asRetriever({ k: 2 });
+//         const retrievedDocs = await retriever.invoke(userQuery);
+//         console.log('retrievedDocs', retrievedDocs)
+//         const context = retrievedDocs.map(doc => doc.pageContent).join('\n\n');
+
+//         const SYSTEM_PROMPT = `You are a helpful assistant. Use the provided context to answer user questions when it is available. If the answer is clearly found in the context, say "Based on the provided documents, ..." before answering. If the context does not contain the answer, you may respond using your own general knowledge, but indicate it by saying "Based on my general knowledge, ...". Do not make up facts when context is needed for accuracy. Be concise, accurate, and helpful. Context: ${context}`;
+
+//         const messages = [
+//             { role: "system", content: SYSTEM_PROMPT },
+//             { role: "user", content: userQuery }
+//         ];
+
+//         const response = await ollama.chat({
+//             model: "tinyllama:1.1b-chat",
+//             messages: messages
+//         });
+
+//         const sourceFilenames = Array.from(
+//             new Set(retrievedDocs.map(doc => doc.metadata?.filename).filter(Boolean))
+//         );
+
+//         res.json({
+//                 response: response.message.content,
+//                 sources: sourceFilenames  // an array of filenames
+//             });
+
+//     } catch (error) {
+//         console.error('Chat error:', error);
+//         res.status(500).json({ error: 'Failed to process chat query' });
+//     }
+// });
+
 app.get('/chat', async (req, res) => {
     try {
         const userQuery = req.query.query as string;
@@ -103,7 +148,8 @@ app.get('/chat', async (req, res) => {
 
         const retriever = vectorStore.asRetriever({ k: 2 });
         const retrievedDocs = await retriever.invoke(userQuery);
-        console.log('retrievedDocs', retrievedDocs)
+        console.log('retrievedDocs', retrievedDocs);
+
         const context = retrievedDocs.map(doc => doc.pageContent).join('\n\n');
 
         const SYSTEM_PROMPT = `You are a helpful assistant. Use the provided context to answer user questions when it is available. If the answer is clearly found in the context, say "Based on the provided documents, ..." before answering. If the context does not contain the answer, you may respond using your own general knowledge, but indicate it by saying "Based on my general knowledge, ...". Do not make up facts when context is needed for accuracy. Be concise, accurate, and helpful. Context: ${context}`;
@@ -113,23 +159,94 @@ app.get('/chat', async (req, res) => {
             { role: "user", content: userQuery }
         ];
 
-        const response = await ollama.chat({
-            model: "tinyllama:1.1b-chat",
-            messages: messages
-        });
-
         const sourceFilenames = Array.from(
             new Set(retrievedDocs.map(doc => doc.metadata?.filename).filter(Boolean))
         );
 
-        res.json({
-                response: response.message.content,
-                sources: sourceFilenames  // an array of filenames
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        res.write(`data: ${JSON.stringify({
+            type: 'metadata',
+            sources: sourceFilenames
+        })}\n\n`);
+
+        const cleanup = () => {
+            if (!res.headersSent) {
+                res.end();
+            }
+        };
+
+        req.on('close', cleanup);
+        req.on('aborted', cleanup);
+
+        try {
+            const response = await ollama.chat({
+                model: "tinyllama:1.1b-chat",
+                messages: messages,
+                stream: true
             });
+
+            let fullResponse = '';
+
+            for await (const chunk of response) {
+                if (req.destroyed) {
+                    break;
+                }
+
+                const content = chunk.message?.content;
+                if (content) {
+                    fullResponse += content;
+
+                    res.write(`data: ${JSON.stringify({
+                        type: 'content',
+                        content: content
+                    })}\n\n`);
+                }
+
+                if (chunk.done) {
+                    res.write(`data: ${JSON.stringify({
+                        type: 'done',
+                        done: true,
+                        fullResponse: fullResponse,
+                        sources: sourceFilenames
+                    })}\n\n`);
+                    res.end();
+                    return;
+                }
+            }
+
+            res.write(`data: ${JSON.stringify({
+                type: 'done',
+                done: true,
+                fullResponse: fullResponse,
+                sources: sourceFilenames
+            })}\n\n`);
+            res.end();
+
+        } catch (streamError) {
+            console.error('Streaming error:', streamError);
+            res.write(`data: ${JSON.stringify({
+                type: 'error',
+                error: 'Stream interrupted'
+            })}\n\n`);
+            res.end();
+        }
 
     } catch (error) {
         console.error('Chat error:', error);
-        res.status(500).json({ error: 'Failed to process chat query' });
+
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to process chat query' });
+        } else {
+            // If streaming has started, send error via SSE
+            res.write(`data: ${JSON.stringify({
+                type: 'error',
+                error: 'Failed to process chat query'
+            })}\n\n`);
+            res.end();
+        }
     }
 });
 
